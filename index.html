@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Build a BigQuery ML Model in SQL</title>
+
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Prism.js for Syntax Highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+
+    <style>
+        /* --- CUSTOM STYLES & PALETTE --- */
+        /* Instructors can easily tweak the color palette and fonts here. */
+        :root {
+            --color-primary: 259 94% 69%; /* Re-used for focus rings, buttons */
+            --color-background: 224 71% 4%;
+            --color-surface: 220 44% 11%;
+            --color-text: 220 13% 91%;
+            --color-muted-text: 220 9% 65%;
+            --color-border: 220 19% 25%;
+            --color-error: 354 70% 54%;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: hsl(var(--color-background));
+            color: hsl(var(--color-text));
+        }
+        /* Style for Prism.js code block */
+        pre[class*="language-"] {
+            font-family: 'Source Code Pro', monospace;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            border: 1px solid hsl(var(--color-border));
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        /* Custom focus ring color */
+        .focus-ring {
+            --tw-ring-color: hsl(var(--color-primary));
+        }
+        /* Smooth transition for elements */
+        .transition-all-smooth {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        /* Accordion styles for mobile */
+        .accordion-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .accordion-content.open {
+            max-height: 1000px; /* Large enough to not clip content */
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Main Container -->
+    <div class="container mx-auto p-4 md:p-8">
+
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold tracking-tight">Build a BigQuery ML Model in SQL</h1>
+            <p class="text-lg text-slate-400 mt-2">Interactively generate `CREATE MODEL` syntax and estimate costs.</p>
+        </header>
+
+        <!-- Validation Alert Banner -->
+        <div id="validation-alert" role="alert" class="hidden bg-red-500/10 border border-red-500 text-red-400 px-4 py-3 rounded-lg relative mb-6 -translate-y-10 opacity-0 transition-all duration-500">
+            <strong class="font-bold">Validation Error:</strong>
+            <span id="alert-message" class="block sm:inline ml-2"></span>
+        </div>
+
+        <!-- Main Grid Layout (Desktop) / Accordion Container (Mobile) -->
+        <div id="main-layout" class="grid grid-cols-1 md:grid-cols-2 md:gap-8">
+
+            <!-- Left Panel / First Accordion: Model Builder Form -->
+            <section id="model-builder-section" aria-labelledby="model-builder-heading">
+                <div class="md:hidden bg-slate-800/50 rounded-lg p-4 mb-2 flex justify-between items-center cursor-pointer accordion-toggle" data-target="model-builder-content">
+                    <h2 id="model-builder-heading" class="text-xl font-bold">1. Model Builder</h2>
+                    <svg class="w-6 h-6 transition-transform transform rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </div>
+                <div id="model-builder-content" class="bg-slate-900/70 border border-slate-800 rounded-lg p-6 accordion-content open">
+                    <h2 class="text-xl font-bold mb-6 hidden md:block">Model Builder</h2>
+                    <form id="model-form" class="space-y-6">
+                        
+                        <!-- Model Name -->
+                        <div>
+                            <label for="model-name" class="block text-sm font-medium text-slate-300 mb-1">Model Name</label>
+                            <input type="text" id="model-name" value="my_dataset.my_first_model" class="focus-ring bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-2 focus:border-purple-500 block w-full p-2.5 transition-all-smooth">
+                        </div>
+
+                        <!-- Data Source -->
+                        <div>
+                            <label for="data-source" class="block text-sm font-medium text-slate-300 mb-1">Data Source (Table or Subquery)</label>
+                            <input type="text" id="data-source" value="`my_project.my_dataset.training_data`" class="focus-ring bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-2 focus:border-purple-500 block w-full p-2.5 transition-all-smooth">
+                        </div>
+
+                        <!-- Model Type -->
+                        <div class="relative">
+                            <label for="model-type" class="flex items-center text-sm font-medium text-slate-300 mb-1">
+                                MODEL_TYPE
+                                <span class="tooltip-trigger ml-2 cursor-help" data-tooltip="tooltip-model-type">
+                                    <svg class="w-4 h-4 text-slate-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg>
+                                </span>
+                            </label>
+                            <select id="model-type" class="focus-ring bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-2 focus:border-purple-500 block w-full p-2.5 transition-all-smooth">
+                                <option value="LOGISTIC_REG">LOGISTIC_REG</option>
+                                <option value="LINEAR_REG">LINEAR_REG</option>
+                                <option value="KMEANS">KMEANS</option>
+                                <option value="BOOSTED_TREE_CLASSIFIER">BOOSTED_TREE_CLASSIFIER</option>
+                                <option value="BOOSTED_TREE_REGRESSOR">BOOSTED_TREE_REGRESSOR</option>
+                                <option value="DNN_CLASSIFIER">DNN_CLASSIFIER</option>
+                            </select>
+                            <div id="tooltip-model-type" class="absolute z-10 hidden w-64 p-3 -mt-2 text-sm text-white bg-slate-800 border border-slate-700 rounded-lg shadow-lg">
+                                <h3 class="font-semibold">Model Type</h3>
+                                <p class="mt-1">Defines the machine learning algorithm to use.</p>
+                                <p class="mt-2 text-xs text-slate-400"><strong>Tip:</strong> Start with simpler models like `LOGISTIC_REG` for classification or `LINEAR_REG` for regression before trying more complex ones.</p>
+                                <button class="absolute top-1 right-1 tooltip-close p-1">&times;</button>
+                            </div>
+                        </div>
+
+                        <!-- Input Label Columns -->
+                        <div class="relative">
+                            <label for="input-label-cols" class="flex items-center text-sm font-medium text-slate-300 mb-1">
+                                INPUT_LABEL_COLS
+                                <span class="tooltip-trigger ml-2 cursor-help" data-tooltip="tooltip-input-label">
+                                    <svg class="w-4 h-4 text-slate-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg>
+                                </span>
+                            </label>
+                            <select id="input-label-cols" multiple class="focus-ring bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-2 focus:border-purple-500 block w-full p-2.5 transition-all-smooth h-24">
+                                <!-- Options are dynamically added by JS for this example -->
+                                <option selected>label</option>
+                                <option>has_purchased</option>
+                                <option>customer_value</option>
+                                <option>is_fraud</option>
+                            </select>
+                            <div id="tooltip-input-label" class="absolute z-10 hidden w-64 p-3 -mt-2 text-sm text-white bg-slate-800 border border-slate-700 rounded-lg shadow-lg">
+                                <h3 class="font-semibold">Input Label Columns</h3>
+                                <p class="mt-1">The column(s) the model should predict. Most supervised models use one label.</p>
+                                <p class="mt-2 text-xs text-slate-400"><strong>Tip:</strong> `LOGISTIC_REG` and `LINEAR_REG` require exactly one label column. Some models support multiple labels for multi-class classification.</p>
+                                <button class="absolute top-1 right-1 tooltip-close p-1">&times;</button>
+                            </div>
+                        </div>
+
+                        <!-- Data Split Method -->
+                        <div class="relative">
+                            <label for="data-split-method" class="flex items-center text-sm font-medium text-slate-300 mb-1">
+                                DATA_SPLIT_METHOD
+                                <span class="tooltip-trigger ml-2 cursor-help" data-tooltip="tooltip-data-split">
+                                    <svg class="w-4 h-4 text-slate-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg>
+                                </span>
+                            </label>
+                            <select id="data-split-method" class="focus-ring bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-2 focus:border-purple-500 block w-full p-2.5 transition-all-smooth">
+                                <option value="AUTO_SPLIT">AUTO_SPLIT</option>
+                                <option value="RANDOM">RANDOM</option>
+                                <option value="CUSTOM">CUSTOM</option>
+                                <option value="SEQ">SEQ</option>
+                                <option value="NO_SPLIT">NO_SPLIT</option>
+                            </select>
+                            <div id="tooltip-data-split" class="absolute z-10 hidden w-64 p-3 -mt-2 text-sm text-white bg-slate-800 border border-slate-700 rounded-lg shadow-lg">
+                                <h3 class="font-semibold">Data Split Method</h3>
+                                <p class="mt-1">How to split data for training and evaluation. `AUTO_SPLIT` is the default.</p>
+                                <p class="mt-2 text-xs text-slate-400"><strong>Tip:</strong> Use `NO_SPLIT` if you have separate training/evaluation datasets. Use `RANDOM` for reproducible splits.</p>
+                                <button class="absolute top-1 right-1 tooltip-close p-1">&times;</button>
+                            </div>
+                        </div>
+
+                        <!-- Numeric Options -->
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label for="max-iterations" class="block text-sm font-medium text-slate-300 mb-1">MAX_ITERATIONS</label>
+                                <input type="number" id="max-iterations" value="20" min="1" class="focus-ring bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-2 focus:border-purple-500 block w-full p-2.5 transition-all-smooth">
+                            </div>
+                            <div>
+                                <label for="learn-rate" class="block text-sm font-medium text-slate-300 mb-1">LEARN_RATE</label>
+                                <input type="number" id="learn-rate" value="0.1" step="0.01" min="0" class="focus-ring bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-2 focus:border-purple-500 block w-full p-2.5 transition-all-smooth">
+                            </div>
+                            <div>
+                                <label for="eval-fraction" class="block text-sm font-medium text-slate-300 mb-1">DATA_SPLIT_EVAL_FRACTION</label>
+                                <input type="number" id="eval-fraction" value="0.2" step="0.05" min="0" max="1" class="focus-ring bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-2 focus:border-purple-500 block w-full p-2.5 transition-all-smooth">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Right Panel / Second Accordion: SQL & Cost -->
+            <section id="output-section" aria-labelledby="output-heading">
+                <div class="md:hidden bg-slate-800/50 rounded-lg p-4 mb-2 mt-4 flex justify-between items-center cursor-pointer accordion-toggle" data-target="output-content">
+                    <h2 id="output-heading" class="text-xl font-bold">2. Generated SQL & Cost</h2>
+                    <svg class="w-6 h-6 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </div>
+                <div id="output-content" class="space-y-8 accordion-content">
+                    <!-- Generated SQL -->
+                    <div class="bg-slate-900/70 border border-slate-800 rounded-lg p-6 relative">
+                        <h3 class="text-lg font-bold mb-4">Generated SQL</h3>
+                        <button id="copy-button" aria-label="Copy SQL to clipboard" class="absolute top-4 right-4 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-2 px-3 rounded-md transition-all-smooth">
+                            Copy
+                        </button>
+                        <div class="opacity-0 transition-opacity duration-500" id="sql-container" aria-live="polite">
+                            <pre><code id="sql-output" class="language-sql"></code></pre>
+                        </div>
+                    </div>
+
+                    <!-- Cost Estimator -->
+                    <div class="bg-slate-900/70 border border-slate-800 rounded-lg p-6">
+                        <h3 class="text-lg font-bold mb-4">On-Demand Cost Estimator</h3>
+                        <div class="flex flex-col sm:flex-row items-center gap-4">
+                            <div class="flex-grow w-full">
+                                <label for="bytes-scanned" class="block text-sm font-medium text-slate-300 mb-1">Expected bytes to be processed (GB)</label>
+                                <input type="number" id="bytes-scanned" min="0" placeholder="e.g., 150" class="focus-ring bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-2 focus:border-purple-500 block w-full p-2.5 transition-all-smooth">
+                            </div>
+                            <div class="text-center mt-4 sm:mt-0">
+                                <p class="text-sm text-slate-400">Estimated Cost</p>
+                                <p id="cost-output" class="text-3xl font-bold text-purple-400">$0.00</p>
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-3">Based on a sample on-demand rate of $6.25 per TB. This is an estimate for the training query only.</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+
+        // --- CONFIGURATION ---
+        // Instructors can change the cost per TB here.
+        const COST_PER_TB = 6.25; // Standard US on-demand price as of late 2023
+
+        // --- ELEMENT SELECTORS ---
+        const form = document.getElementById('model-form');
+        const sqlOutput = document.getElementById('sql-output');
+        const sqlContainer = document.getElementById('sql-container');
+        const copyButton = document.getElementById('copy-button');
+        const bytesInput = document.getElementById('bytes-scanned');
+        const costOutput = document.getElementById('cost-output');
+        const alertBox = document.getElementById('validation-alert');
+        const alertMessage = document.getElementById('alert-message');
+
+        // Form input elements
+        const modelName = document.getElementById('model-name');
+        const dataSource = document.getElementById('data-source');
+        const modelType = document.getElementById('model-type');
+        const inputLabelCols = document.getElementById('input-label-cols');
+        const dataSplitMethod = document.getElementById('data-split-method');
+        const maxIterations = document.getElementById('max-iterations');
+        const learnRate = document.getElementById('learn-rate');
+        const evalFraction = document.getElementById('eval-fraction');
+
+        // --- CORE FUNCTIONS ---
+
+        /**
+         * Generates the CREATE MODEL SQL statement based on form inputs.
+         * This function is the heart of the application.
+         */
+        function generateSql() {
+            // 1. Get all values from the form inputs
+            const modelNameVal = modelName.value.trim() || 'my_dataset.my_model';
+            const dataSourceVal = dataSource.value.trim() || '`my_project.my_dataset.training_data`';
+            
+            // Get selected labels from the multi-select dropdown
+            const selectedLabels = Array.from(inputLabelCols.selectedOptions).map(opt => `'${opt.value}'`).join(', ');
+
+            // 2. Build the OPTIONS clause dynamically
+            // This ensures we only include options that have values.
+            let options = [];
+            if (modelType.value) options.push(`MODEL_TYPE = '${modelType.value}'`);
+            if (selectedLabels) options.push(`INPUT_LABEL_COLS = [${selectedLabels}]`);
+            if (dataSplitMethod.value) options.push(`DATA_SPLIT_METHOD = '${dataSplitMethod.value}'`);
+            if (maxIterations.value) options.push(`MAX_ITERATIONS = ${maxIterations.value}`);
+            if (learnRate.value) options.push(`LEARN_RATE = ${learnRate.value}`);
+            if (evalFraction.value) options.push(`DATA_SPLIT_EVAL_FRACTION = ${evalFraction.value}`);
+
+            // 3. Format the final SQL string
+            const optionsString = options.length > 0 ? `OPTIONS(\n  ${options.join(',\n  ')}\n)` : '';
+            const finalSql = `CREATE OR REPLACE MODEL ${modelNameVal}\n${optionsString}\nAS SELECT * FROM ${dataSourceVal};`;
+            
+            // 4. Update the DOM and re-highlight
+            sqlOutput.textContent = finalSql;
+            Prism.highlightElement(sqlOutput);
+        }
+        
+        /**
+         * Validates form inputs and shows/hides the alert banner.
+         * This provides immediate feedback to the user.
+         */
+        function validateForm() {
+            const selectedLabels = Array.from(inputLabelCols.selectedOptions);
+            const currentModelType = modelType.value;
+            
+            // Validation Rule: Logistic Regression requires exactly one label.
+            if (currentModelType === 'LOGISTIC_REG' && selectedLabels.length !== 1) {
+                showAlert('For LOGISTIC_REG, you must select exactly one label column.');
+                return false;
+            }
+
+            // Add other validation rules here...
+            // e.g., if (some_condition) { showAlert('Some other error'); return false; }
+
+            hideAlert();
+            return true;
+        }
+
+        /**
+         * Calculates the estimated cost based on data size.
+         */
+        function calculateCost() {
+            const gigabytes = parseFloat(bytesInput.value);
+            if (isNaN(gigabytes) || gigabytes <= 0) {
+                animateCounter(costOutput, 0);
+                return;
+            }
+            const terabytes = gigabytes / 1024;
+            const cost = terabytes * COST_PER_TB;
+            animateCounter(costOutput, cost);
+        }
+
+        // --- UI HELPER FUNCTIONS ---
+
+        /**
+         * Displays the validation alert banner with a message.
+         * @param {string} message - The error message to display.
+         */
+        function showAlert(message) {
+            alertMessage.textContent = message;
+            alertBox.classList.remove('hidden', '-translate-y-10', 'opacity-0');
+            alertBox.classList.add('translate-y-0', 'opacity-100');
+        }
+
+        /**
+         * Hides the validation alert banner.
+         */
+        function hideAlert() {
+            alertBox.classList.add('opacity-0', '-translate-y-10');
+            setTimeout(() => alertBox.classList.add('hidden'), 500); // Hide after transition
+        }
+
+        /**
+         * Animates a number counter from its current value to a target value.
+         * @param {HTMLElement} element - The element containing the number.
+         * @param {number} targetValue - The final number to display.
+         */
+        function animateCounter(element, targetValue) {
+            const startValue = parseFloat(element.textContent.replace('$', '')) || 0;
+            const duration = 1000; // Animation duration in ms
+            let startTime = null;
+
+            function animationStep(timestamp) {
+                if (!startTime) startTime = timestamp;
+                const progress = Math.min((timestamp - startTime) / duration, 1);
+                const currentValue = startValue + (targetValue - startValue) * progress;
+                element.textContent = `$${currentValue.toFixed(2)}`;
+                if (progress < 1) {
+                    requestAnimationFrame(animationStep);
+                }
+            }
+            requestAnimationFrame(animationStep);
+        }
+
+        /**
+         * Handles the copy-to-clipboard functionality.
+         * Uses a fallback for older browsers/iframe environments.
+         */
+        function copyToClipboard() {
+            const textToCopy = sqlOutput.textContent;
+            try {
+                // Modern way, might be blocked in some iframes
+                navigator.clipboard.writeText(textToCopy);
+            } catch (err) {
+                // Fallback using a temporary textarea
+                const textArea = document.createElement("textarea");
+                textArea.value = textToCopy;
+                textArea.style.position = "fixed"; // Avoid scrolling to bottom
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                } catch (err) {
+                    console.error('Fallback copy failed', err);
+                }
+                document.body.removeChild(textArea);
+            }
+            
+            // Provide user feedback
+            copyButton.textContent = 'Copied!';
+            setTimeout(() => {
+                copyButton.textContent = 'Copy';
+            }, 2000);
+        }
+        
+        // --- EVENT LISTENERS ---
+
+        // Listen for any change on the form to regenerate SQL and validate
+        form.addEventListener('input', () => {
+            validateForm();
+            generateSql();
+        });
+
+        // Listen for input on the cost calculator field
+        bytesInput.addEventListener('input', calculateCost);
+
+        // Listen for clicks on the copy button
+        copyButton.addEventListener('click', copyToClipboard);
+
+        // Tooltip functionality
+        document.querySelectorAll('.tooltip-trigger').forEach(trigger => {
+            const tooltip = document.getElementById(trigger.dataset.tooltip);
+            
+            const showTooltip = () => tooltip.classList.remove('hidden');
+            const hideTooltip = () => tooltip.classList.add('hidden');
+
+            trigger.addEventListener('mouseenter', showTooltip);
+            trigger.addEventListener('focus', showTooltip);
+            trigger.addEventListener('mouseleave', hideTooltip);
+            trigger.addEventListener('blur', hideTooltip);
+        });
+        document.querySelectorAll('.tooltip-close').forEach(button => {
+            button.addEventListener('click', (e) => {
+                e.target.closest('.absolute').classList.add('hidden');
+            });
+        });
+
+        // Accordion functionality for mobile view
+        document.querySelectorAll('.accordion-toggle').forEach(button => {
+            button.addEventListener('click', () => {
+                const content = document.getElementById(button.dataset.target);
+                const icon = button.querySelector('svg');
+                content.classList.toggle('open');
+                icon.classList.toggle('rotate-180');
+            });
+        });
+
+
+        // --- INITIALIZATION ---
+
+        // Generate the initial SQL on page load
+        generateSql();
+        // Fade in the SQL container for a nice loading effect
+        setTimeout(() => {
+            sqlContainer.classList.remove('opacity-0');
+        }, 100);
+
+        // Adjust for mobile on load and resize
+        function adjustLayoutForScreenSize() {
+            const isMobile = window.innerWidth < 768; // md breakpoint in Tailwind
+            const modelContent = document.getElementById('model-builder-content');
+            const outputContent = document.getElementById('output-content');
+            const modelIcon = document.querySelector('[data-target="model-builder-content"] svg');
+            const outputIcon = document.querySelector('[data-target="output-content"] svg');
+
+            if (isMobile) {
+                // Ensure first accordion is open by default on mobile
+                modelContent.classList.add('open');
+                if (modelIcon) modelIcon.classList.add('rotate-180');
+                // Ensure second is closed
+                outputContent.classList.remove('open');
+                if (outputIcon) outputIcon.classList.remove('rotate-180');
+            } else {
+                // On desktop, ensure both content areas are visible (remove accordion classes)
+                modelContent.classList.add('open');
+                outputContent.classList.add('open');
+            }
+        }
+
+        window.addEventListener('resize', adjustLayoutForScreenSize);
+        adjustLayoutForScreenSize(); // Initial check
+    });
+    </script>
+</body>
+</html>
